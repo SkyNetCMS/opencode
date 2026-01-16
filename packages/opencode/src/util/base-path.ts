@@ -102,6 +102,10 @@ export function rewriteJsForBasePath(js: string, basePath: string): string {
   // This handles all dynamic asset loading
   result = result.replace(/function\(t\)\{return"\/"\+t\}/g, `function(t){return"${basePath}/"+t}`)
 
+  // Rewrite hardcoded "/assets/..." paths in string literals
+  // These are used for fonts (inter, BlexMono, etc.) and audio files (staplebops, nope, etc.)
+  result = result.replace(/"\/assets\//g, `"${basePath}/assets/`)
+
   return result
 }
 

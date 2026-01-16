@@ -175,6 +175,25 @@ describe("util.base-path", () => {
       const result = rewriteJsForBasePath(js, "/myapp")
       expect(result).toBe(js)
     })
+
+    test("rewrites hardcoded /assets/ paths in string literals", () => {
+      const js = 'const font = "/assets/inter-FIwubZjA.woff2"'
+      const result = rewriteJsForBasePath(js, "/myapp")
+      expect(result).toBe('const font = "/myapp/assets/inter-FIwubZjA.woff2"')
+    })
+
+    test("rewrites multiple /assets/ paths", () => {
+      const js = 'const a = "/assets/font.woff2"; const b = "/assets/audio.aac"'
+      const result = rewriteJsForBasePath(js, "/prefix")
+      expect(result).toContain('"/prefix/assets/font.woff2"')
+      expect(result).toContain('"/prefix/assets/audio.aac"')
+    })
+
+    test("does NOT rewrite /assets/ without leading quote", () => {
+      const js = "const path = '/assets/file.js'" // single quotes, not affected
+      const result = rewriteJsForBasePath(js, "/myapp")
+      expect(result).toBe(js)
+    })
   })
 
   describe("rewriteCssForBasePath", () => {

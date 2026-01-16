@@ -2,12 +2,12 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { GlobalBus } from "@/bus/global"
 import { Log } from "../util/log"
-import { rewriteHtmlForBasePath, rewriteJsForBasePath, rewriteCssForBasePath } from "../util/base-path"
+
 import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler } from "hono-openapi"
 import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { stream, streamSSE } from "hono/streaming"
-import { proxy } from "hono/proxy"
+import { serveApp } from "./app"
 import { basicAuth } from "hono/basic-auth"
 import { Session } from "../session"
 import z from "zod"
@@ -2853,57 +2853,14 @@ export namespace Server {
           },
         )
         .all("/*", async (c) => {
-          // Strip basePath from the request path before proxying
+          // Strip basePath from the request path before serving
           let path = c.req.path
           if (_basePath && path.startsWith(_basePath)) {
             path = path.slice(_basePath.length) || "/"
           }
 
-          const response = await proxy(`https://app.opencode.ai${path}`, {
-            ...c.req,
-            headers: {
-              ...c.req.raw.headers,
-              host: "app.opencode.ai",
-            },
-          })
-
-          // Rewrite content for basePath support
-          const contentType = response.headers.get("content-type") || ""
-
-          if (_basePath && contentType.includes("text/html")) {
-            const html = rewriteHtmlForBasePath(await response.text(), _basePath)
-            return new Response(html, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers,
-            })
-          }
-
-          if (_basePath && (contentType.includes("javascript") || path.endsWith(".js"))) {
-            const js = rewriteJsForBasePath(await response.text(), _basePath)
-            return new Response(js, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers,
-            })
-          }
-
-          if (_basePath && (contentType.includes("text/css") || path.endsWith(".css"))) {
-            const css = rewriteCssForBasePath(await response.text(), _basePath)
-            return new Response(css, {
-              status: response.status,
-              statusText: response.statusText,
-              headers: response.headers,
-            })
-          }
-
-          // Set CSP header only when not rewriting content (no basePath)
-          // When basePath is set, we inject inline scripts which would violate CSP
-          response.headers.set(
-            "Content-Security-Policy",
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'",
-          )
-          return response
+          // Serve from embedded app assets
+          return serveApp(path, _basePath)
         }) as unknown as Hono,
   )
 
@@ -2928,9 +2885,7 @@ export namespace Server {
     // Normalize basePath: ensure leading slash, remove trailing slash
     const rawBasePath = opts.basePath ?? "/"
     _basePath =
-      rawBasePath === "/"
-        ? ""
-        : (rawBasePath.startsWith("/") ? rawBasePath : `/${rawBasePath}`).replace(/\/+$/, "")
+      rawBasePath === "/" ? "" : (rawBasePath.startsWith("/") ? rawBasePath : `/${rawBasePath}`).replace(/\/+$/, "")
 
     // Create wrapper app for base path routing
     const baseApp = new Hono()

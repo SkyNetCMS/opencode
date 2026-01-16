@@ -96,6 +96,13 @@ const targets = singleFlag
 
 await $`rm -rf dist`
 
+// Build the frontend app and generate the asset manifest
+console.log("building frontend app...")
+const appDir = path.resolve(dir, "../app")
+await $`cd ${appDir} && bun run build`
+console.log("generating app manifest...")
+await import("./generate-app-manifest")
+
 const binaries: Record<string, string> = {}
 if (!skipInstall) {
   await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
