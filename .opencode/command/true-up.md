@@ -1,18 +1,66 @@
 ---
-description: Sync skynetcms branch with upstream OpenCode
+description: Sync skynetcms branch with upstream OpenCode release
 ---
 
 # True-Up: Sync with Upstream OpenCode
 
-Synchronize the `skynetcms` branch with the latest upstream `dev` branch.
+Synchronize the `skynetcms` branch with a specific upstream release tag.
+
+## Arguments
+
+`$ARGUMENTS` - Target version (optional)
+
+Examples:
+
+- `/true-up v1.1.65` - Specific version with v prefix
+- `/true-up 1.1.65` - Without v prefix (normalized internally)
+- `/true-up 65` - Short form (assumes current minor v1.1.x)
+- `/true-up latest` - Resolve to latest upstream tag
+
+If no argument provided: list last 10 upstream release tags and ask user to choose.
 
 ## Workflow
 
-1. Fetch upstream changes
-2. Update local dev branch from upstream/dev
-3. Merge dev into skynetcms branch
-4. Handle conflicts (auto-resolve favoring SkyNetCMS, stop if complex)
-5. Commit if merge successful (do NOT push)
+### Step 1: Version Resolution
+
+If no argument provided:
+
+1. Fetch upstream tags: `git fetch upstream --tags`
+2. List last 10 release tags: `git tag -l 'v1.*' --sort=-v:refname | head -10`
+3. Highlight "stable" releases (patch version divisible by 10: v1.1.60, v1.1.50)
+4. Ask user to select a version
+
+If argument provided:
+
+1. Normalize version to `vX.Y.Z` format
+2. Handle short forms: `65` → `v1.1.65`, `1.1.65` → `v1.1.65`
+3. Handle `latest`: resolve to most recent tag
+
+### Step 2: Validation
+
+1. Fetch upstream: `git fetch upstream --tags`
+2. Verify tag exists: `git tag -l "{version}"` must return the tag
+3. Check if `{version}-sn` already exists - warn user if so
+4. If tag doesn't exist, show error and list similar tags
+
+### Step 3: Merge
+
+```bash
+git checkout skynetcms
+git merge {version} -m "chore: true-up with upstream {version}"
+```
+
+Note: Merge the TAG directly, not the dev branch.
+
+### Step 4: Create SkyNetCMS Tag
+
+After successful merge:
+
+```bash
+git tag {version}-sn
+```
+
+Example: `v1.1.65` → `v1.1.65-sn`
 
 ## Conflict Resolution Strategy
 
@@ -37,29 +85,6 @@ When resolving conflicts, prioritize keeping SkyNetCMS modifications:
 - Multiple valid resolution paths exist
 - Upstream refactored files we modified
 
-## Execution Steps
-
-```bash
-# 1. Ensure we're on skynetcms branch
-git checkout skynetcms
-
-# 2. Fetch upstream
-git fetch upstream
-
-# 3. Check upstream version
-git log upstream/dev -1 --oneline
-
-# 4. Update local dev from upstream
-git checkout dev
-git merge upstream/dev --ff-only
-
-# 5. Return to skynetcms and merge
-git checkout skynetcms
-git merge dev -m "chore: true-up with upstream dev"
-```
-
-If `--ff-only` fails on dev, investigate - the fork's dev branch may have diverged from upstream.
-
 ## Post-Merge Checklist
 
 After successful merge, verify before pushing:
@@ -72,5 +97,7 @@ After successful merge, verify before pushing:
 ## Important
 
 - Do NOT push automatically - let user verify first
+- Do NOT push tags until user confirms everything works
 - If merge conflicts occur that can't be auto-resolved, output the conflicting files and stop
 - After user resolves conflicts manually, they should run: `git add . && git commit`
+- Then create the tag manually: `git tag {version}-sn`
