@@ -1,3 +1,9 @@
+# OpenCode (SkyNetCMS Fork)
+
+> **REQUIRED READING:** See [SN-AGENTS.md](./SN-AGENTS.md) for SkyNetCMS-specific context, branch management, and upstream sync workflows.
+
+---
+
 - To regenerate the JavaScript SDK, run `./packages/sdk/js/script/build.ts`.
 - ALWAYS USE PARALLEL TOOLS WHEN APPLICABLE.
 - The default branch in this repo is `dev`.
