@@ -1,21 +1,20 @@
 mod cli;
 mod constants;
-#[cfg(windows)]
-mod job_object;
 #[cfg(target_os = "linux")]
 pub mod linux_display;
+#[cfg(target_os = "linux")]
+pub mod linux_windowing;
 mod logging;
 mod markdown;
 mod server;
 mod window_customizer;
 mod windows;
 
+use crate::cli::CommandChild;
 use futures::{
     FutureExt, TryFutureExt,
     future::{self, Shared},
 };
-#[cfg(windows)]
-use job_object::*;
 use std::{
     env,
     net::TcpListener,
@@ -24,16 +23,16 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tauri::{AppHandle, Manager, RunEvent, State, ipc::Channel};
+use tauri::{AppHandle, Listener, Manager, RunEvent, State, ipc::Channel};
 #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
 use tauri_plugin_deep_link::DeepLinkExt;
-use tauri_plugin_shell::process::CommandChild;
+use tauri_specta::Event;
 use tokio::{
     sync::{oneshot, watch},
     time::{sleep, timeout},
 };
 
-use crate::cli::sync_cli;
+use crate::cli::{sqlite_migration::SqliteMigrationProgress, sync_cli};
 use crate::constants::*;
 use crate::server::get_saved_server_url;
 use crate::windows::{LoadingWindow, MainWindow};
@@ -41,7 +40,9 @@ use crate::windows::{LoadingWindow, MainWindow};
 #[derive(Clone, serde::Serialize, specta::Type, Debug)]
 struct ServerReadyData {
     url: String,
+    username: Option<String>,
     password: Option<String>,
+    is_sidecar: bool
 }
 
 #[derive(Clone, Copy, serde::Serialize, specta::Type, Debug)]
@@ -122,8 +123,8 @@ async fn await_initialization(
     let mut rx = init_state.current.clone();
 
     let events = async {
-        let e = (*rx.borrow()).clone();
-        let _ = events.send(e).unwrap();
+        let e = *rx.borrow();
+        let _ = events.send(e);
 
         while rx.changed().await.is_ok() {
             let step = *rx.borrow_and_update();
@@ -517,7 +518,10 @@ fn make_specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             wsl_path,
             resolve_app_path
         ])
-        .events(tauri_specta::collect_events![LoadingWindowComplete])
+        .events(tauri_specta::collect_events![
+            LoadingWindowComplete,
+            SqliteMigrationProgress
+        ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
 }
 
@@ -556,17 +560,46 @@ async fn initialize(app: AppHandle) {
 
     tracing::info!("Main and loading windows created");
 
-    let sqlite_enabled = option_env!("OPENCODE_SQLITE").is_some();
+    // SQLite migration handling:
+    // We only do this if the sqlite db doesn't exist, and we're expecting the sidecar to create it
+    // First, we spawn a task that listens for SqliteMigrationProgress events that can
+    // come from any invocation of the sidecar CLI. The progress is captured by a stdout stream interceptor.
+    // Then in the loading task, we wait for sqlite migration to complete before
+    // starting our health check against the server, otherwise long migrations could result in a timeout.
+    let needs_sqlite_migration = !sqlite_file_exists();
+    let sqlite_done = needs_sqlite_migration.then(|| {
+        tracing::info!(
+            path = %opencode_db_path().expect("failed to get db path").display(),
+            "Sqlite file not found, waiting for it to be generated"
+        );
+
+        let (done_tx, done_rx) = oneshot::channel::<()>();
+        let done_tx = Arc::new(Mutex::new(Some(done_tx)));
+
+        let init_tx = init_tx.clone();
+        let id = SqliteMigrationProgress::listen(&app, move |e| {
+            let _ = init_tx.send(InitStep::SqliteWaiting);
+
+            if matches!(e.payload, SqliteMigrationProgress::Done)
+                && let Some(done_tx) = done_tx.lock().unwrap().take()
+            {
+                let _ = done_tx.send(());
+            }
+        });
+
+        let app = app.clone();
+        tokio::spawn(done_rx.map(async move |_| {
+            app.unlisten(id);
+        }))
+    });
 
     let loading_task = tokio::spawn({
-        let init_tx = init_tx.clone();
         let app = app.clone();
 
         async move {
-            let mut sqlite_exists = sqlite_file_exists();
-
             tracing::info!("Setting up server connection");
             let server_connection = setup_server_connection(app.clone()).await;
+            tracing::info!("Server connection setup");
 
             // we delay spawning this future so that the timeout is created lazily
             let cli_health_check = match server_connection {
@@ -574,6 +607,7 @@ async fn initialize(app: AppHandle) {
                     child,
                     health_check,
                     url,
+                    username,
                     password,
                 } => {
                     let app = app.clone();
@@ -598,15 +632,9 @@ async fn initialize(app: AppHandle) {
 
                             tracing::info!("CLI health check OK");
 
-                            #[cfg(windows)]
-                            {
-                                let job_state = app.state::<JobObjectState>();
-                                job_state.assign_pid(child.pid());
-                            }
-
                             app.state::<ServerState>().set_child(Some(child));
 
-                            Ok(ServerReadyData { url, password })
+                            Ok(ServerReadyData { url, username,password, is_sidecar: true })
                         }
                         .map(move |res| {
                             let _ = server_ready_tx.send(res);
@@ -616,49 +644,42 @@ async fn initialize(app: AppHandle) {
                 ServerConnection::Existing { url } => {
                     let _ = server_ready_tx.send(Ok(ServerReadyData {
                         url: url.to_string(),
+                        username: None,
                         password: None,
+                        is_sidecar: false,
                     }));
                     None
                 }
             };
 
+            tracing::info!("server connection started");
+
             if let Some(cli_health_check) = cli_health_check {
-                if sqlite_enabled {
-                    tracing::debug!(sqlite_exists, "Checking sqlite file existence");
-                    if !sqlite_exists {
-                        tracing::info!(
-                            path = %opencode_db_path().expect("failed to get db path").display(),
-                            "Sqlite file not found, waiting for it to be generated"
-                        );
-                        let _ = init_tx.send(InitStep::SqliteWaiting);
-
-                        while !sqlite_exists {
-                            sleep(Duration::from_secs(1)).await;
-                            sqlite_exists = sqlite_file_exists();
-                        }
-                    }
+                if let Some(sqlite_done_rx) = sqlite_done {
+                    let _ = sqlite_done_rx.await;
                 }
-
                 tokio::spawn(cli_health_check);
             }
 
             let _ = server_ready_rx.await;
+
+            tracing::info!("Loading task finished");
         }
     })
     .map_err(|_| ())
     .shared();
 
-    let loading_window = if sqlite_enabled
+    let loading_window = if needs_sqlite_migration
         && timeout(Duration::from_secs(1), loading_task.clone())
             .await
             .is_err()
     {
         tracing::debug!("Loading task timed out, showing loading window");
-        let app = app.clone();
         let loading_window = LoadingWindow::create(&app).expect("Failed to create loading window");
         sleep(Duration::from_secs(1)).await;
         Some(loading_window)
     } else {
+        tracing::debug!("Showing main window without loading window");
         MainWindow::create(&app).expect("Failed to create main window");
 
         None
@@ -667,7 +688,6 @@ async fn initialize(app: AppHandle) {
     let _ = loading_task.await;
 
     tracing::info!("Loading done, completing initialisation");
-
     let _ = init_tx.send(InitStep::Done);
 
     if loading_window.is_some() {
@@ -687,9 +707,6 @@ fn setup_app(app: &tauri::AppHandle, init_rx: watch::Receiver<InitStep>) {
     #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
     app.deep_link().register_all().ok();
 
-    #[cfg(windows)]
-    app.manage(JobObjectState::new());
-
     app.manage(InitState { current: init_rx });
 }
 
@@ -707,6 +724,7 @@ enum ServerConnection {
     },
     CLI {
         url: String,
+        username: Option<String>,
         password: Option<String>,
         child: CommandChild,
         health_check: server::HealthCheck,
@@ -718,11 +736,15 @@ async fn setup_server_connection(app: AppHandle) -> ServerConnection {
 
     tracing::info!(?custom_url, "Attempting server connection");
 
-    if let Some(url) = custom_url
-        && server::check_health_or_ask_retry(&app, &url).await
+    if let Some(url) = &custom_url
+        && server::check_health_or_ask_retry(&app, url).await
     {
         tracing::info!(%url, "Connected to custom server");
-        return ServerConnection::Existing { url: url.clone() };
+        // If the default server is already local, no need to also spawn a sidecar
+        if server::is_localhost_url(url) {
+            return ServerConnection::Existing { url: url.clone() };
+        }
+        // Remote default server: fall through and also spawn a local sidecar
     }
 
     let local_port = get_sidecar_port();
@@ -743,6 +765,7 @@ async fn setup_server_connection(app: AppHandle) -> ServerConnection {
 
     ServerConnection::CLI {
         url: local_url,
+        username: Some("opencode".to_string()),
         password: Some(password),
         child,
         health_check,
