@@ -43,7 +43,9 @@ COPY --from=ghcr.io/skynetcms/opencode:1.2.10-sn /usr/local/bin/opencode /usr/lo
 | Push to `skynetcms` branch           | `:skynetcms-preview`                                                  |
 | Manual dispatch (Actions UI)         | `:{version}` + `:latest`, or `:skynetcms-preview` if no version given |
 
-The workflow builds all 11 platform targets via the existing upstream `packages/opencode/script/build.ts`, then produces a multi-arch Docker image (`linux/amd64` + `linux/arm64`) using the existing `packages/opencode/Dockerfile`. No upstream files are modified by this workflow.
+The workflow builds all 11 platform targets via the existing upstream `packages/opencode/script/build.ts`, then produces a multi-arch Docker image (`linux/amd64` + `linux/arm64`) using `packages/opencode/Dockerfile.debian` (Debian bookworm-slim, glibc). No upstream files are modified by this workflow.
+
+The upstream `packages/opencode/Dockerfile` (Alpine, musl) is left untouched but not used by this workflow. The Debian variant is required because SkyNetCMS runs on Debian-based images where musl binaries are incompatible.
 
 **Important:** The `v*-sn` tag and `:latest` Docker tag always correspond. Running `opencode --version` inside the container reports the same version as the Docker tag.
 
@@ -60,6 +62,7 @@ The workflow builds all 11 platform targets via the existing upstream `packages/
 These files exist only in this fork and should never be sent upstream:
 
 - `.github/workflows/publish-docker.yml` - Docker image CI/CD
+- `packages/opencode/Dockerfile.debian` - Debian-based Docker image (glibc)
 - `SN-AGENTS.md` - This file
 
 ## Syncing with Upstream

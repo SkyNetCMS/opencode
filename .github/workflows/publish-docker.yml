@@ -79,7 +79,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./packages/opencode
-          file: ./packages/opencode/Dockerfile
+          file: ./packages/opencode/Dockerfile.debian
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
