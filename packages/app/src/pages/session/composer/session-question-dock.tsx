@@ -8,6 +8,8 @@ import type { QuestionAnswer, QuestionRequest } from "@opencode-ai/sdk/v2"
 import { useLanguage } from "@/context/language"
 import { useSDK } from "@/context/sdk"
 
+const cache = new Map<string, { tab: number; answers: QuestionAnswer[]; custom: string[]; customOn: boolean[] }>()
+
 export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit: () => void }> = (props) => {
   const sdk = useSDK()
   const language = useLanguage()
@@ -15,16 +17,18 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   const questions = createMemo(() => props.request.questions)
   const total = createMemo(() => questions().length)
 
+  const cached = cache.get(props.request.id)
   const [store, setStore] = createStore({
-    tab: 0,
-    answers: [] as QuestionAnswer[],
-    custom: [] as string[],
-    customOn: [] as boolean[],
+    tab: cached?.tab ?? 0,
+    answers: cached?.answers ?? ([] as QuestionAnswer[]),
+    custom: cached?.custom ?? ([] as string[]),
+    customOn: cached?.customOn ?? ([] as boolean[]),
     editing: false,
     sending: false,
   })
 
   let root: HTMLDivElement | undefined
+  let replied = false
 
   const question = createMemo(() => questions()[store.tab])
   const options = createMemo(() => question()?.options ?? [])
@@ -62,7 +66,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
   const measure = () => {
     if (!root) return
 
-    const scroller = document.querySelector(".session-scroller")
+    const scroller = document.querySelector(".scroll-view__viewport")
     const head = scroller instanceof HTMLElement ? scroller.firstElementChild : undefined
     const top =
       head instanceof HTMLElement && head.classList.contains("sticky") ? head.getBoundingClientRect().bottom : 0
@@ -95,7 +99,7 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     window.addEventListener("resize", update)
 
     const dock = root?.closest('[data-component="session-prompt-dock"]')
-    const scroller = document.querySelector(".session-scroller")
+    const scroller = document.querySelector(".scroll-view__viewport")
     const observer = new ResizeObserver(update)
     if (dock instanceof HTMLElement) observer.observe(dock)
     if (scroller instanceof HTMLElement) observer.observe(scroller)
@@ -104,6 +108,16 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
       window.removeEventListener("resize", update)
       observer.disconnect()
       if (raf !== undefined) cancelAnimationFrame(raf)
+    })
+  })
+
+  onCleanup(() => {
+    if (replied) return
+    cache.set(props.request.id, {
+      tab: store.tab,
+      answers: store.answers.map((a) => (a ? [...a] : [])),
+      custom: store.custom.map((s) => s ?? ""),
+      customOn: store.customOn.map((b) => b ?? false),
     })
   })
 
@@ -119,6 +133,8 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     setStore("sending", true)
     try {
       await sdk.client.question.reply({ requestID: props.request.id, answers })
+      replied = true
+      cache.delete(props.request.id)
     } catch (err) {
       fail(err)
     } finally {
@@ -133,6 +149,8 @@ export const SessionQuestionDock: Component<{ request: QuestionRequest; onSubmit
     setStore("sending", true)
     try {
       await sdk.client.question.reject({ requestID: props.request.id })
+      replied = true
+      cache.delete(props.request.id)
     } catch (err) {
       fail(err)
     } finally {

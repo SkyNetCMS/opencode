@@ -28,6 +28,7 @@ import { Bus } from "../../bus"
 import { MessageV2 } from "../../session/message-v2"
 import { SessionPrompt } from "@/session/prompt"
 import { $ } from "bun"
+import { setTimeout as sleep } from "node:timers/promises"
 
 type GitHubAuthor = {
   login: string
@@ -353,7 +354,7 @@ export const GithubInstallCommand = cmd({
               }
 
               retries++
-              await Bun.sleep(1000)
+              await sleep(1000)
             } while (true)
 
             s.stop("Installed GitHub app")
@@ -450,6 +451,7 @@ export const GithubRunCommand = cmd({
       const isWorkflowDispatchEvent = context.eventName === "workflow_dispatch"
 
       const { providerID, modelID } = normalizeModel()
+      const variant = process.env["VARIANT"] || undefined
       const runId = normalizeRunId()
       const share = normalizeShare()
       const oidcBaseUrl = normalizeOidcBaseUrl()
@@ -912,6 +914,7 @@ export const GithubRunCommand = cmd({
         const result = await SessionPrompt.prompt({
           sessionID: session.id,
           messageID: Identifier.ascending("message"),
+          variant,
           model: {
             providerID,
             modelID,
@@ -965,6 +968,7 @@ export const GithubRunCommand = cmd({
         const summary = await SessionPrompt.prompt({
           sessionID: session.id,
           messageID: Identifier.ascending("message"),
+          variant,
           model: {
             providerID,
             modelID,
@@ -1369,7 +1373,7 @@ Co-authored-by: ${actor} <${actor}@users.noreply.github.com>"`
         } catch (e) {
           if (retries > 0) {
             console.log(`Retrying after ${delayMs}ms...`)
-            await Bun.sleep(delayMs)
+            await sleep(delayMs)
             return withRetry(fn, retries - 1, delayMs)
           }
           throw e
