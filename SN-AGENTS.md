@@ -73,7 +73,14 @@ Typical flow:
 
 ```bash
 /true-up 1.2.10                      # merge upstream tag, create v1.2.10-sn
-git push origin skynetcms --tags     # pushes branch + tag, triggers Docker build
+git push origin skynetcms            # push branch first (triggers preview build)
+git push origin v1.2.10-sn           # push tag separately (triggers versioned build)
+```
+
+**Important:** Always push the branch and tag in **separate** `git push` commands. Pushing both at once (`--tags`) causes a GitHub Actions race condition where the tag push event may not trigger its own workflow run, resulting in only a `:skynetcms-preview` image instead of the versioned `:X.Y.Z-sn` + `:latest` tags. If this happens, recover with:
+
+```bash
+gh workflow run publish-docker.yml --repo SkyNetCMS/opencode -f version=X.Y.Z-sn
 ```
 
 ## Proposing Upstream Changes
