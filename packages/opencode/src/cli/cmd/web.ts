@@ -78,7 +78,7 @@ export const WebCommand = cmd({
       // Open localhost in browser
       open(localhostUrl.toString()).catch(() => {})
     } else {
-      const displayUrl = Server.url().toString()
+      const displayUrl = Server.url.toString()
       UI.println(UI.Style.TEXT_INFO_BOLD + "  Web interface:    ", UI.Style.TEXT_NORMAL, displayUrl)
       if (basePath) {
         UI.println(UI.Style.TEXT_INFO_BOLD + "  Base path:         ", UI.Style.TEXT_NORMAL, basePath)

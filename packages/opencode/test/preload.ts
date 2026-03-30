@@ -44,13 +44,14 @@ process.env["OPENCODE_TEST_HOME"] = testHome
 // Set test managed config directory to isolate tests from system managed settings
 const testManagedConfigDir = path.join(dir, "managed")
 process.env["OPENCODE_TEST_MANAGED_CONFIG_DIR"] = testManagedConfigDir
+process.env["OPENCODE_DISABLE_DEFAULT_PLUGINS"] = "true"
 
 // Write the cache version file to prevent global/index.ts from clearing the cache
 const cacheDir = path.join(dir, "cache", "opencode")
 await fs.mkdir(cacheDir, { recursive: true })
 await fs.writeFile(path.join(cacheDir, "version"), "14")
 
-// Clear provider env vars to ensure clean test state
+// Clear provider and server auth env vars to ensure clean test state
 delete process.env["ANTHROPIC_API_KEY"]
 delete process.env["OPENAI_API_KEY"]
 delete process.env["GOOGLE_API_KEY"]
@@ -70,6 +71,8 @@ delete process.env["DEEPSEEK_API_KEY"]
 delete process.env["FIREWORKS_API_KEY"]
 delete process.env["CEREBRAS_API_KEY"]
 delete process.env["SAMBANOVA_API_KEY"]
+delete process.env["OPENCODE_SERVER_PASSWORD"]
+delete process.env["OPENCODE_SERVER_USERNAME"]
 
 // Now safe to import from src/
 const { Log } = await import("../src/util/log")
