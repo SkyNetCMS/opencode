@@ -39,6 +39,7 @@ function setup() {
     hostname: "127.0.0.1",
     mdnsDomain: "opencode.local",
     cors: [],
+    basePath: "",
   })
   spyOn(Win32, "win32DisableProcessedInput").mockImplementation(() => {})
   spyOn(Win32, "win32InstallCtrlCGuard").mockReturnValue(undefined)
