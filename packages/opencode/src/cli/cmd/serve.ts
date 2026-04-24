@@ -3,9 +3,6 @@ import { cmd } from "./cmd"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { Flag } from "../../flag/flag"
 import { normalizeBasePath } from "../../util/base-path"
-import { Workspace } from "../../control-plane/workspace"
-import { Project } from "../../project/project"
-import { Installation } from "../../installation"
 
 export const ServeCommand = cmd({
   command: "serve",
@@ -20,6 +17,7 @@ export const ServeCommand = cmd({
     const basePath = normalizeBasePath(opts.basePath)
     const pathSuffix = basePath ? `${basePath}/` : ""
     console.log(`opencode server listening on http://${server.hostname}:${server.port}${pathSuffix}`)
+
     await new Promise(() => {})
     await server.stop()
   },
