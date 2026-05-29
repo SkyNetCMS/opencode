@@ -3,6 +3,22 @@ import { STATUS_CODES } from "http"
 import { iife } from "@/util/iife"
 import type { ProviderID } from "./schema"
 
+export class HeaderTimeoutError extends Error {
+  public override readonly name = "ProviderHeaderTimeoutError"
+
+  constructor(public readonly ms: number) {
+    super(`Provider response headers timed out after ${ms}ms`)
+  }
+}
+
+export class ResponseStreamError extends Error {
+  public override readonly name = "ProviderResponseStreamError"
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+  }
+}
+
 // Adapted from overflow detection patterns in:
 // https://github.com/badlogic/pi-mono/blob/main/packages/ai/src/utils/overflow.ts
 const OVERFLOW_PATTERNS = [
@@ -151,6 +167,7 @@ export function parseStreamError(input: unknown): ParsedStreamError | undefined 
         isRetryable: false,
         responseBody,
       }
+    case "server_is_overloaded":
     case "server_error":
       return {
         type: "api_error",
@@ -199,3 +216,5 @@ export function parseAPICallError(input: { providerID: ProviderID; error: APICal
     metadata,
   }
 }
+
+export * as ProviderError from "./error"

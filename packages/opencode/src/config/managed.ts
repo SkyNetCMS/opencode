@@ -3,8 +3,8 @@ export * as ConfigManaged from "./managed"
 import { existsSync } from "fs"
 import os from "os"
 import path from "path"
-import { Log, Process } from "../util"
-import { warn } from "console"
+import * as Log from "@opencode-ai/core/util/log"
+import { Process } from "@/util/process"
 
 const log = Log.create({ service: "config" })
 
@@ -46,7 +46,14 @@ export function parseManagedPlist(json: string): string {
 export async function readManagedPreferences() {
   if (process.platform !== "darwin") return
 
-  const user = os.userInfo().username
+  const user = (() => {
+    try {
+      return os.userInfo().username || "user"
+    } catch (err) {
+      log.warn("failed to read system username, using fallback", { err })
+      return "user"
+    }
+  })()
   const paths = [
     path.join("/Library/Managed Preferences", user, `${MANAGED_PLIST_DOMAIN}.plist`),
     path.join("/Library/Managed Preferences", `${MANAGED_PLIST_DOMAIN}.plist`),
